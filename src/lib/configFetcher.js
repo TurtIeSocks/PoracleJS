@@ -4,15 +4,14 @@ const moment = require('moment-timezone')
 const TranslatorFactory = require('../util/translatorFactory')
 const dtsLoader = require('./dtsloader')
 const configChecker = require('./configChecker')
-const geofenceLoader = require('./geofenceLoader')
 
-let config
-let knex
-let dts
-let geofence
-let translator
-let translatorFactory
-let scannerKnex
+// let config
+// let knex
+// let dts
+// let geofence
+// let translator
+// let translatorFactory
+// let scannerKnex
 
 function getKnex(conf) {
 	switch (conf.database.client) {
@@ -65,14 +64,14 @@ function getScannerKnex(conf) {
 }
 
 module.exports = {
-	Config: (performChecks = true) => {
-		config = importFresh('config')
-		dts = dtsLoader.readDtsFiles()
-		geofence = geofenceLoader.readAllGeofenceFiles(config)
-		knex = getKnex(config)
-		scannerKnex = getScannerKnex(config)
-		translatorFactory = new TranslatorFactory(config)
-		translator = translatorFactory.default
+	Config: async (performChecks = true) => {
+		const config = importFresh('config')
+		const dts = dtsLoader.readDtsFiles()
+		const geofence = (await require('./geofenceLoader')(config)).flat()
+		const knex = getKnex(config)
+		const scannerKnex = getScannerKnex(config)
+		const translatorFactory = new TranslatorFactory(config)
+		const translator = translatorFactory.default
 
 		if (performChecks) {
 			configChecker.checkConfig(config)

@@ -1,6 +1,7 @@
 const stripJsonComments = require('strip-json-comments')
 const fs = require('fs')
 const path = require('path')
+const fetch = require('node-fetch')
 
 function getGeofenceFromGEOjson(config, rawdata) {
 	if (rawdata.type !== 'FeatureCollection' || !rawdata.features) return
@@ -64,26 +65,22 @@ function readGeofenceFile(config, filename) {
 		throw new Error(`Geofence ${filename} - ${err.message}`)
 	}
 
-	if (geofence.type === 'FeatureCollection') geofence = getGeofenceFromGEOjson(config, geofence)
+	if (geofence?.type === 'FeatureCollection') geofence = getGeofenceFromGEOjson(config, geofence)
 
 	return geofence
 }
 
-function readAllGeofenceFiles(config) {
-	let geofence
-
-	if (Array.isArray(config.geofence.path)) {
-		const fence = []
-		for (const fencePath of config.geofence.path) {
-			const localFence = readGeofenceFile(config, path.join(__dirname, `../../${fencePath}`))
-			fence.push(...localFence)
-		}
-		geofence = fence
-	} else {
-		geofence = readGeofenceFile(config, path.join(__dirname, `../../${config.geofence.path}`))
-	}
-
-	return geofence
+async function getKojiGeofence(url, bearerToken) {
+	return fetch(url, { headers: { Authorization: `Bearer ${bearerToken}` } })
+		.then((res) => res.json())
+		.then((json) => json.data)
 }
 
-module.exports = { readAllGeofenceFiles }
+async function readAllGeofenceFiles(config) {
+	const userFences = Array.isArray(config.geofence.path) ? config.geofence.path : [config.geofence.path]
+	return Promise.all(userFences.map((fencePath) => (fencePath.startsWith('http')
+		? getKojiGeofence(fencePath, config.geofence.kojiOptions.bearerToken).then((geofence) => geofence)
+		: readGeofenceFile(config, path.join(__dirname, `../../${fencePath}`)))))
+}
+
+module.exports = readAllGeofenceFiles
