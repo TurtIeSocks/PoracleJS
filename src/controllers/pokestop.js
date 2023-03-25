@@ -86,6 +86,7 @@ class Invasion extends Controller {
 			}
 			data.name = data.name ? this.escapeJsonString(data.name) : this.escapeJsonString(data.pokestop_name)
 			data.pokestopName = data.name
+			data.url = data.url || this.config.fallbacks?.pokestopUrl
 			data.pokestopUrl = data.url
 
 			const incidentExpiration = data.incident_expiration ?? data.incident_expire_timestamp
@@ -107,10 +108,13 @@ class Invasion extends Controller {
 			data.matched = data.matchedAreas.map((x) => x.name.toLowerCase())
 
 			data.gruntTypeId = 0
-			if (data.incident_grunt_type) {
+			if (data.incident_grunt_type && (data.incident_grunt_type !== 352)) {
 				data.gruntTypeId = data.incident_grunt_type
-			} else if (data.grunt_type) {
+			} else if (data.grunt_type && (data.display_type <= 6)) {
 				data.gruntTypeId = data.grunt_type
+			} else if (data.incident_grunt_type === 352) {
+				data.grunt_type = 0
+				data.display_type = 8
 			}
 
 			data.gruntTypeColor = 'BABABA'
@@ -135,6 +139,15 @@ class Invasion extends Controller {
 					data.gruntType = gruntType.type
 				}
 			}
+
+			// Event invasions
+			if ((data.grunt_type === 0) && (data.display_type >= 7)) {
+				data.gender = 0
+				data.gruntName = data.display_type && this.GameData.utilData.pokestopEvent[data.display_type] ? this.GameData.utilData.pokestopEvent[data.display_type] : ''
+				data.gruntType = data.display_type && this.GameData.utilData.pokestopEvent[data.display_type] ? this.GameData.utilData.pokestopEvent[data.display_type].toLowerCase() : ''
+				data.gruntRewards = ''
+			}
+			data.displayTypeId = data.display_type
 
 			const whoCares = data.poracleTest ? [{
 				...data.poracleTest,
@@ -163,9 +176,15 @@ class Invasion extends Controller {
 
 			setImmediate(async () => {
 				try {
-					if (this.imgUicons) data.imgUrl = await this.imgUicons.invasionIcon(data.gruntTypeId)
-					if (this.imgUiconsAlt) data.imgUrlAlt = await this.imgUiconsAlt.invasionIcon(data.gruntTypeId)
-					if (this.stickerUicons) data.stickerUrl = await this.stickerUicons.invasionIcon(data.gruntTypeId)
+					if ((data.grunt_type === 0) && (data.display_type >= 7)) {
+						if (this.imgUicons) data.imgUrl = await this.imgUicons.pokestopIcon(data.lureTypeId, true, data.display_type) || this.config.fallbacks?.imgUrlPokestop
+						if (this.imgUiconsAlt) data.imgUrlAlt = await this.imgUiconsAlt.pokestopIcon(data.lureTypeId, true, data.display_type) || this.config.fallbacks?.imgUrlPokestop
+						if (this.stickerUicons) data.stickerUrl = await this.stickerUicons.pokestopIcon(data.lureTypeId, true, data.display_type)
+					} else {
+						if (this.imgUicons) data.imgUrl = await this.imgUicons.invasionIcon(data.gruntTypeId) || this.config.fallbacks?.imgUrlPokestop
+						if (this.imgUiconsAlt) data.imgUrlAlt = await this.imgUiconsAlt.invasionIcon(data.gruntTypeId) || this.config.fallbacks?.imgUrlPokestop
+						if (this.stickerUicons) data.stickerUrl = await this.stickerUicons.invasionIcon(data.gruntTypeId)
+					}
 
 					const geoResult = await this.getAddress({ lat: data.latitude, lon: data.longitude })
 					const jobs = []
@@ -176,7 +195,7 @@ class Invasion extends Controller {
 					const weatherCellId = this.weatherData.getWeatherCellId(data.latitude, data.longitude)
 					const currentCellWeather = this.weatherData.getCurrentWeatherInCell(weatherCellId)
 
-					await this.getStaticMapUrl(logReference, data, 'pokestop', ['latitude', 'longitude', 'imgUrl', 'gruntTypeId'])
+					await this.getStaticMapUrl(logReference, data, 'pokestop', ['latitude', 'longitude', 'imgUrl', 'gruntTypeId', 'displayTypeId'])
 					data.staticmap = data.staticMap // deprecated
 
 					for (const cares of whoCares) {
@@ -197,6 +216,10 @@ class Invasion extends Controller {
 
 						data.gruntTypeEmoji = translator.translate(this.emojiLookup.lookup('grunt-unknown', platform))
 						require('./common/weather').setGameWeather(data, translator, this.GameData, this.emojiLookup, platform, currentCellWeather)
+
+						if ((data.grunt_type === 0) && (data.display_type >= 7)) {
+							data.gruntName = translator.translate(data.display_type && this.GameData.utilData.pokestopEvent[data.display_type] ? this.GameData.utilData.pokestopEvent[data.display_type] : '')
+						}
 
 						// full build
 						if (data.gruntTypeId) {
@@ -221,6 +244,7 @@ class Invasion extends Controller {
 								data.gruntType = translator.translate(gruntType.type)
 
 								let gruntRewards = ''
+								let gruntRewardsformNormalised = ''
 								const gruntRewardsList = {}
 								gruntRewardsList.first = { chance: 100, monsters: [] }
 								if (gruntType.encounters && gruntType.encounters.first) {
@@ -233,12 +257,17 @@ class Invasion extends Controller {
 											if (!first) gruntRewards += ', '
 											else first = false
 
-											const firstReward = +fr
-											const firstRewardMonster = Object.values(this.GameData.monsters).find((mon) => mon.id === firstReward && !mon.form.id)
-											gruntRewards += firstRewardMonster ? translator.translate(firstRewardMonster.name) : ''
+											const firstReward = +fr.id
+											const firstRewardForm = +fr.form
+											const firstRewardMonster = Object.values(this.GameData.monsters).find((mon) => mon.id === firstReward && mon.form.id === firstRewardForm)
+											gruntRewardsformNormalised = firstRewardMonster.form.name === 'Normal' ? '' : (translator.translate(firstRewardMonster.form.name)+' ')
+											gruntRewards += gruntRewardsformNormalised + firstRewardMonster ? translator.translate(firstRewardMonster.name) : ''
 											gruntRewardsList.first.monsters.push({
 												id: firstReward,
+												formId: firstRewardForm,
 												name: translator.translate(firstRewardMonster.name),
+												formName: translator.translate(firstRewardMonster.form.name),
+												fullName: gruntRewardsformNormalised + translator.translate(firstRewardMonster.name),
 											})
 										})
 										gruntRewards += '\\n15%: '
@@ -248,13 +277,17 @@ class Invasion extends Controller {
 											if (!first) gruntRewards += ', '
 											else first = false
 
-											const secondReward = +sr
-											const secondRewardMonster = Object.values(this.GameData.monsters).find((mon) => mon.id === secondReward && !mon.form.id)
-
-											gruntRewards += secondRewardMonster ? translator.translate(secondRewardMonster.name) : ''
+											const secondReward = +sr.id
+											const secondRewardForm = +sr.form
+											const secondRewardMonster = Object.values(this.GameData.monsters).find((mon) => mon.id === secondReward && mon.form.id === secondRewardForm)
+											gruntRewardsformNormalised = secondRewardMonster.form.name === 'Normal' ? '' : (translator.translate(secondRewardMonster.form.name)+' ')
+											gruntRewards += gruntRewardsformNormalised + secondRewardMonster ? translator.translate(secondRewardMonster.name) : ''
 											gruntRewardsList.second.monsters.push({
 												id: secondReward,
+												formId: secondRewardForm,
 												name: translator.translate(secondRewardMonster.name),
+												formName: translator.translate(secondRewardMonster.form.name),
+												fullName: gruntRewardsformNormalised + translator.translate(secondRewardMonster.name),
 											})
 										})
 									} else {
@@ -265,12 +298,17 @@ class Invasion extends Controller {
 											if (!first) gruntRewards += ', '
 											else first = false
 
-											const reward = +tr
-											const rewardMonster = Object.values(this.GameData.monsters).find((mon) => mon.id === reward && !mon.form.id)
-											gruntRewards += rewardMonster ? translator.translate(rewardMonster.name) : ''
+											const reward = +tr.id
+											const rewardForm = +tr.form
+											const rewardMonster = Object.values(this.GameData.monsters).find((mon) => mon.id === reward && mon.form.id === rewardForm)
+											gruntRewardsformNormalised = rewardMonster.form.name === 'Normal' ? '' : (translator.translate(rewardMonster.form.name)+' ')
+											gruntRewards += gruntRewardsformNormalised + rewardMonster ? translator.translate(rewardMonster.name) : ''
 											gruntRewardsList.first.monsters.push({
 												id: reward,
+												formId: rewardForm,
 												name: translator.translate(rewardMonster.name),
+												formName: translator.translate(rewardMonster.form.name),
+												fullName: gruntRewardsformNormalised + translator.translate(rewardMonster.name),
 											})
 										})
 									}
